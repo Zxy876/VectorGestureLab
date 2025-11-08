@@ -1,93 +1,134 @@
-#include <iostream>
 #include <SFML/Graphics.hpp>
-#include <opencv2/opencv.hpp>
+#include <fstream>
+#include <iostream>
+#include <vector>
+#include <string>
+#include <cstdint>
 #include "MyVector.h"
 
-void testCopyMove() {
-    std::cout << "\n==== Test Copy / Move ====\n";
+// ==================== 动画结构 ====================
+struct BoxAnim {
+    float yOffset = 0.f;
+    float alpha = 255.f;
+    bool isNew = false;
+    bool isRemoved = false;
+    sf::Clock timer;
+};
+std::vector<BoxAnim> boxAnims;
 
-    MyVector<int> a;
-    for (int i = 1; i <= 3; ++i) a.push_back(i);
-    std::cout << "Original a: "; a.print();
+// ==================== 绘制 Vector 可视化 ====================
+template <typename T>
+void drawVector(sf::RenderWindow& window, const MyVector<T>& vec,
+                int startX, int startY, bool flash = false) {
+    float boxW = 40.f, boxH = 40.f, spacing = 10.f;
+    if (boxAnims.size() < vec.capacity()) boxAnims.resize(vec.capacity());
 
-    MyVector<int> b = a; // 拷贝构造
-    std::cout << "Copied b: "; b.print();
+    for (size_t i = 0; i < vec.capacity(); ++i) {
+        sf::RectangleShape box({boxW, boxH});
+        box.setPosition({static_cast<float>(startX + i * (boxW + spacing)),
+                         static_cast<float>(startY + boxAnims[i].yOffset)});
+        sf::Color color = (i < vec.size()) ? sf::Color(100, 200, 255)
+                                           : sf::Color(40, 40, 40);
+        if (flash) color = sf::Color(180, 230, 255);
 
-    MyVector<int> c;
-    c = a; // 拷贝赋值
-    std::cout << "Assigned c: "; c.print();
+        if (boxAnims[i].isNew) {
+            float t = boxAnims[i].timer.getElapsedTime().asSeconds();
+            boxAnims[i].yOffset = std::max(0.f, 30.f - t * 60.f);
+            if (t > 0.5f) boxAnims[i].isNew = false;
+        }
+        if (boxAnims[i].isRemoved) {
+            float t = boxAnims[i].timer.getElapsedTime().asSeconds();
+            boxAnims[i].alpha = std::max(0.f, 255.f - t * 300.f);
+            if (t > 0.4f) boxAnims[i].isRemoved = false;
+        }
 
-    MyVector<int> d = std::move(a); // 移动构造
-    std::cout << "Moved d: "; d.print();
-
-    MyVector<int> e;
-    e = std::move(b); // 移动赋值
-    std::cout << "Moved e: "; e.print();
-}
-void testIterator() {
-    std::cout << "\n==== Test Iterator / Range-for ====\n";
-
-    MyVector<int> v;
-    for (int i = 1; i <= 5; ++i) v.push_back(i);
-
-    std::cout << "Manual iteration: ";
-    for (MyVector<int>::Iterator it = v.begin(); it != v.end(); ++it)
-        std::cout << *it << " ";
-    std::cout << "\n";
-
-    std::cout << "Range-for iteration: ";
-    for (auto& x : v)
-        std::cout << x << " ";
-    std::cout << "\n";
-
-    // STL 算法兼容性测试
-    std::cout << "std::sort descending...\n";
-    std::sort(v.begin(), v.end(), std::greater<int>());
-    for (auto& x : v)
-        std::cout << x << " ";
-    std::cout << "\n";
-}
-
-int main() {
-    std::cout << "✅ Vector Gesture Lab (SFML 3 + OpenCV, macOS safe loop)\n";
-
-    // 1. 打开摄像头
-    cv::VideoCapture cap(0);
-    if (!cap.isOpened()) {
-        std::cerr << "❌ Cannot open camera!\n";
-        return -1;
+        color.a = static_cast<std::uint8_t>(boxAnims[i].alpha);
+        box.setFillColor(color);
+        window.draw(box);
     }
 
-    // 2. 创建 SFML 窗口（注意 SFML 3 的写法）
-    sf::RenderWindow window(sf::VideoMode({400u, 300u}), "Vector Gesture Lab - SFML Window");
+    static sf::Font font;
+    static bool loaded = false;
+    if (!loaded) {
+        [[maybe_unused]] bool ok = font.openFromFile("/System/Library/Fonts/Supplemental/Arial.ttf");
+        loaded = true;
+    }
 
-    cv::Mat frame;
+    // ✅ SFML 3 的构造方式：Text(font, string, size)
+    sf::Text text(font,
+                  "size=" + std::to_string(vec.size()) +
+                      "  cap=" + std::to_string(vec.capacity()),
+                  20);
+    text.setPosition({static_cast<float>(startX), static_cast<float>(startY + 60)});
+    window.draw(text);
+}
 
-    // 3. 同一条主循环里跑 SFML + OpenCV
+// ==================== 读取 Python 端手势文件 ====================
+std::string readGestureFile() {
+    std::ifstream file("../gesture.txt"); // 读取上一级目录的文件
+    std::string gesture;
+    if (file.is_open()) std::getline(file, gesture);
+    return gesture;
+}
+
+// ==================== 主函数 ====================
+int main() {
+    std::cout << "✅ Vector Gesture Lab - Python Link Mode (SFML 3)\n";
+    std::cout << "请确保 gesture_server.py 正在运行...\n";
+
+    // ✅ SFML 3 的构造方式：RenderWindow(VideoMode{width, height}, title, state)
+    sf::RenderWindow window(sf::VideoMode({800u, 600u}),
+                            "Vector Gesture Lab",
+                            sf::State::Windowed);
+
+    MyVector<int> vec;
+    int counter = 1;
+    bool autoMode = false;
+    sf::Clock autoClock;
+
     while (window.isOpen()) {
-        // --- 3.1 SFML event ---
         while (auto event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
                 window.close();
             }
         }
 
-        // --- 3.2 读取摄像头并显示 ---
-        cap >> frame;
-        if (!frame.empty()) {
-            cv::imshow("Camera", frame);
-            // 这行必须要，有了它 OpenCV 的窗口才能处理事件
-            // 1ms 足够，不会卡 SFML
-            if (cv::waitKey(1) == 27) { // ESC 退出摄像头+程序
-                window.close();
+        std::string gesture = readGestureFile();
+
+        if (gesture == "push") {
+            vec.push_back(counter++);
+            boxAnims.resize(vec.capacity());
+            boxAnims[vec.size() - 1].isNew = true;
+            boxAnims[vec.size() - 1].timer.restart();
+            std::cout << "✊ push_back()\n";
+        } else if (gesture == "pop") {
+            if (vec.size() > 0) {
+                boxAnims[vec.size() - 1].isRemoved = true;
+                boxAnims[vec.size() - 1].timer.restart();
+                vec.pop_back();
+                std::cout << "🤚 pop_back()\n";
             }
+        } else if (gesture == "auto") {
+            autoMode = !autoMode;
+            std::cout << (autoMode ? "🌀 auto ON\n" : "🛑 auto OFF\n");
+        } else if (gesture == "clear") {
+            vec.clear();
+            boxAnims.clear();
+            counter = 1;
+            std::cout << "🧹 clear()\n";
         }
 
-        // --- 3.3 画 SFML 窗口 ---
-        window.clear(sf::Color::Black);
+        if (autoMode && autoClock.getElapsedTime().asSeconds() > 1.0f) {
+            vec.push_back(counter++);
+            boxAnims.resize(vec.capacity());
+            boxAnims[vec.size() - 1].isNew = true;
+            boxAnims[vec.size() - 1].timer.restart();
+            autoClock.restart();
+        }
+
+        window.clear(sf::Color(20, 20, 30));
+        drawVector(window, vec, 60, 250);
         window.display();
     }
-  testCopyMove();
-   testIterator();
     return 0;
 }
