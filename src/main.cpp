@@ -18,8 +18,7 @@ std::vector<BoxAnim> boxAnims;
 
 // ==================== 绘制 Vector 可视化 ====================
 template <typename T>
-void drawVector(sf::RenderWindow& window, const MyVector<T>& vec,
-                int startX, int startY, bool flash = false) {
+void drawVector(sf::RenderWindow& window, const MyVector<T>& vec, int startX, int startY, bool flash = false) {
     float boxW = 40.f, boxH = 40.f, spacing = 10.f;
     if (boxAnims.size() < vec.capacity()) boxAnims.resize(vec.capacity());
 
@@ -27,19 +26,22 @@ void drawVector(sf::RenderWindow& window, const MyVector<T>& vec,
         sf::RectangleShape box({boxW, boxH});
         box.setPosition({static_cast<float>(startX + i * (boxW + spacing)),
                          static_cast<float>(startY + boxAnims[i].yOffset)});
-        sf::Color color = (i < vec.size()) ? sf::Color(100, 200, 255)
-                                           : sf::Color(40, 40, 40);
+        sf::Color color = (i < vec.size()) ? sf::Color(100, 200, 255) : sf::Color(40, 40, 40);
         if (flash) color = sf::Color(180, 230, 255);
 
+        // ✅ 改：更慢的入栈动画（下滑入）
         if (boxAnims[i].isNew) {
             float t = boxAnims[i].timer.getElapsedTime().asSeconds();
-            boxAnims[i].yOffset = std::max(0.f, 30.f - t * 60.f);
-            if (t > 0.5f) boxAnims[i].isNew = false;
+            boxAnims[i].yOffset = std::max(0.f, 60.f - t * 60.f); // 慢慢滑上来
+            if (t > 1.0f) boxAnims[i].isNew = false; // 延长到1秒
         }
+
+        // ✅ 改：更平滑的出栈动画（淡出下坠）
         if (boxAnims[i].isRemoved) {
             float t = boxAnims[i].timer.getElapsedTime().asSeconds();
-            boxAnims[i].alpha = std::max(0.f, 255.f - t * 300.f);
-            if (t > 0.4f) boxAnims[i].isRemoved = false;
+            boxAnims[i].alpha = std::max(0.f, 255.f - t * 200.f);
+            boxAnims[i].yOffset = t * 30.f; // 轻微下坠
+            if (t > 0.8f) boxAnims[i].isRemoved = false;
         }
 
         color.a = static_cast<std::uint8_t>(boxAnims[i].alpha);
@@ -47,53 +49,56 @@ void drawVector(sf::RenderWindow& window, const MyVector<T>& vec,
         window.draw(box);
     }
 
+    // ==================== 文字 ====================
     static sf::Font font;
     static bool loaded = false;
     if (!loaded) {
-        [[maybe_unused]] bool ok = font.openFromFile("/System/Library/Fonts/Supplemental/Arial.ttf");
+        if (!font.loadFromFile("/System/Library/Fonts/Supplemental/Arial.ttf")) {
+            std::cerr << "⚠️ 字体加载失败\n";
+        }
         loaded = true;
     }
 
-    // ✅ SFML 3 的构造方式：Text(font, string, size)
-    sf::Text text(font,
-                  "size=" + std::to_string(vec.size()) +
-                      "  cap=" + std::to_string(vec.capacity()),
-                  20);
+    sf::Text text("size=" + std::to_string(vec.size()) +
+                  "  cap=" + std::to_string(vec.capacity()), font, 20);
     text.setPosition({static_cast<float>(startX), static_cast<float>(startY + 60)});
     window.draw(text);
 }
 
-// ==================== 读取 Python 端手势文件 ====================
+// ==================== 手势文件读取 ====================
 std::string readGestureFile() {
-    std::ifstream file("../gesture.txt"); // 读取上一级目录的文件
+std::ifstream file("/Users/zxydediannao/VectorGestureLab/gesture.txt");
     std::string gesture;
     if (file.is_open()) std::getline(file, gesture);
     return gesture;
 }
 
-// ==================== 主函数 ====================
+// ==================== 主程序 ====================
 int main() {
-    std::cout << "✅ Vector Gesture Lab - Python Link Mode (SFML 3)\n";
+    std::cout << "✅ Vector Gesture Lab - 慢动作动画模式\n";
     std::cout << "请确保 gesture_server.py 正在运行...\n";
 
-    // ✅ SFML 3 的构造方式：RenderWindow(VideoMode{width, height}, title, state)
-    sf::RenderWindow window(sf::VideoMode({800u, 600u}),
-                            "Vector Gesture Lab",
-                            sf::State::Windowed);
+    sf::RenderWindow window(sf::VideoMode(800, 600), "Vector Gesture Lab");
 
     MyVector<int> vec;
     int counter = 1;
     bool autoMode = false;
     sf::Clock autoClock;
+    sf::Clock gestureCooldown;
+    float cooldown = 0.8f; // 手势冷却 0.8 秒
 
     while (window.isOpen()) {
-        while (auto event = window.pollEvent()) {
-            if (event->is<sf::Event::Closed>()) {
+        sf::Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed)
                 window.close();
-            }
         }
 
         std::string gesture = readGestureFile();
+
+        // ✅ 冷却保护：避免过快切换动作
+        if (gestureCooldown.getElapsedTime().asSeconds() < cooldown)
+            gesture = "none";
 
         if (gesture == "push") {
             vec.push_back(counter++);
@@ -101,23 +106,31 @@ int main() {
             boxAnims[vec.size() - 1].isNew = true;
             boxAnims[vec.size() - 1].timer.restart();
             std::cout << "✊ push_back()\n";
-        } else if (gesture == "pop") {
+            gestureCooldown.restart();
+        } 
+        else if (gesture == "pop") {
             if (vec.size() > 0) {
                 boxAnims[vec.size() - 1].isRemoved = true;
                 boxAnims[vec.size() - 1].timer.restart();
                 vec.pop_back();
                 std::cout << "🤚 pop_back()\n";
+                gestureCooldown.restart();
             }
-        } else if (gesture == "auto") {
+        } 
+        else if (gesture == "auto") {
             autoMode = !autoMode;
             std::cout << (autoMode ? "🌀 auto ON\n" : "🛑 auto OFF\n");
-        } else if (gesture == "clear") {
+            gestureCooldown.restart();
+        } 
+        else if (gesture == "clear") {
             vec.clear();
             boxAnims.clear();
             counter = 1;
             std::cout << "🧹 clear()\n";
+            gestureCooldown.restart();
         }
 
+        // ✅ 自动模式节奏不变
         if (autoMode && autoClock.getElapsedTime().asSeconds() > 1.0f) {
             vec.push_back(counter++);
             boxAnims.resize(vec.capacity());
