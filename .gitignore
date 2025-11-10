@@ -17,3 +17,7 @@ Makefile
 # OpenCV / SFML temp
 *.png
 *.jpg
+venv311/
+__pycache__/
+*.pyc
+.env
