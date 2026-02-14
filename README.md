@@ -5,7 +5,9 @@
 ## 截图
 
 <div align="center">
-  <img src="demo.gif" alt="演示动画" width="800"/>
+  <img src="demo.gif" alt<img width="603" height="1311" alt="IMG_5103" src="https://github.com/user-attachments/assets/fab7c54b-79c7-4a32-93d8-12d603c77a28" />
+![IMG_5102](https://github.com/user-attachments/assets/73380933-d655-4156-bf66-78bd309da402)
+="演示动画" width="800"/>
 </div>
 
 ## 功能特性
